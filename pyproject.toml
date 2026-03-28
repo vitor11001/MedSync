@@ -1,0 +1,20 @@
+[project]
+name = "medsync"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Vitor11001",email = "josevitorleao1@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "django (>=6.0.3,<7.0.0)",
+    "djangorestframework (>=3.17.0,<4.0.0)",
+    "psycopg[binary] (>=3.2.6,<4.0.0)",
+    "pydantic-settings (>=2.10.1,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
