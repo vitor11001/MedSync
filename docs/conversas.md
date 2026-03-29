@@ -294,3 +294,282 @@ Revisar o estado real do projeto, corrigir a base tecnica e iniciar a personaliz
 ### Proximo ponto natural da conversa
 
 Definir como `telefone` e `email` devem aparecer e ser cadastrados no admin de `Paciente` sem expor esses models no menu lateral.
+
+## 2026-03-29
+
+### Novo foco da conversa
+
+Evoluir o admin como interface principal do sistema, consolidar a modelagem atual da clinica e iniciar a emissao de relatorios em PDF.
+
+### Ajuste de modelagem para contatos
+
+- Foi abandonada a abordagem com models separados de `Phone` e `Email`.
+- `Client` passou a ter os campos:
+- `phone_primary`
+- `phone_secondary`
+- `email`
+- `Doctor` passou a ter os campos:
+- `phone_primary`
+- `phone_secondary`
+- `email`
+- O cadastro de `Paciente` e `Medico` passou a validar telefone com exatamente 11 numeros.
+- Foi adotada mascara visual de telefone no admin no formato `(81) 97106-6662`.
+- O campo `email` recebeu `placeholder` no formulario do admin.
+
+### Ajustes de apresentacao e validacao
+
+- O campo `sexo` do paciente passou a ser obrigatorio.
+- O campo `Data de nascimento` no admin foi corrigido para exibicao em portugues e com texto de ajuda.
+- O campo `CRM` no formulario do medico passou a aparecer em letras maiusculas.
+- Os nomes de `Paciente`, `Medico` e `Especialidade` passaram a ser salvos em minusculo.
+- A exibicao desses nomes no admin e nas representacoes textuais passou a usar iniciais maiusculas.
+- O `__str__` de `Client` passou para o formato:
+- `Nome Completo | CPF: xxx.xxx.xxx-xx`
+- O `__str__` de `Doctor` passou para o formato:
+- `Nome Completo | CRM: xxxxxx`
+
+### Especialidades dos medicos
+
+- O campo `specialty` de `Doctor` foi substituido por `specialties` com `ManyToMany`.
+- Foi criado o model `Specialty`.
+- Foi criado o admin de `Especialidades`.
+- O formulario de `Especialidade` no admin nao mostra `is_deleted` nem `deleted_at`.
+- Foi criado o comando `ensure_default_specialties`.
+- As especialidades padrao definidas foram:
+- `Mastologista`
+- `Clinico Geral`
+- `Medico do Trabalho`
+- Foi criado o comando `ensure_default_doctors`.
+- O comando cria o medico inicial:
+- `Aluizio João da Silva Filho`
+- CRM `6654`
+- especialidade `Mastologista`
+
+### Ajustes no admin
+
+- O admin de `Paciente` e `Medico` deixou de exibir filtros laterais.
+- O admin de `Consulta` deixou de exibir `is_deleted` no formulario e na listagem principal.
+- O admin de `Consulta` passou a usar `autocomplete` para `Paciente` e `Medico`.
+- A busca de `Paciente` ficou limitada a:
+- `full_name`
+- `cpf`
+- A busca de `Medico` ficou limitada a:
+- `full_name`
+- `crm`
+- O admin de `Consulta` ganhou uma pagina propria para emissao de relatorio usando o layout do Django Admin.
+
+### Sequencia e codigo da consulta
+
+- Foi criado o campo `code` em `Appointment` como codigo operacional da consulta.
+- O codigo usa o formato:
+- `C-YYYYMMDD-XXXX`
+- Foi criado o model auxiliar `AppointmentDailySequence`.
+- A geracao do codigo passou a usar transacao atomica com `select_for_update()` para evitar colisao concorrente.
+- O codigo da consulta passou a aparecer na listagem do admin e na busca.
+
+### Tipos de consulta e pagamentos
+
+- O tipo de consulta passou a iniciar no admin com `Primeira consulta`.
+- As opcoes de `tipo de consulta` passaram a incluir:
+- `Primeira consulta`
+- `Retorno`
+- `ASO`
+- `Procedimento`
+- A forma de pagamento passou a incluir:
+- `Dinheiro`
+- `Pix`
+- `Cartao de Credito`
+- `Cartao de Debito`
+- `Plano de Saude`
+- O campo `valor pago` passou a usar mascara monetaria no admin com centavos automaticos.
+
+### Nginx e estaticos
+
+- Foi configurado um servico `nginx` no `docker-compose`.
+- O acesso ao sistema passou a ser feito por `http://localhost`.
+- Os arquivos estaticos passaram a ser servidos pelo `nginx`.
+- O arquivo JS customizado do admin foi movido da saida de `staticfiles` para a origem correta em `clinic/static`.
+
+### Pagina e API de relatorio
+
+- Foi criada uma pagina propria de relatorio no admin de `Consulta`.
+- A pagina possui:
+- selecao obrigatoria de um medico especifico ou `Todos os medicos`
+- `Data inicial`
+- `Data final`
+- botao para emitir o PDF
+- Foi criado `AppointmentReportForm` para validar medico e periodo.
+- O periodo maximo permitido ficou definido em ate 3 meses.
+- Foi criado um endpoint DRF:
+- `POST /api/clinic/reports/appointments/`
+- Foi criada uma pasta `views` no app `clinic`.
+- Foi criada uma pasta `controllers` no app `clinic`.
+- Foi criada uma pasta `serializers` no app `clinic`.
+
+### Estrutura do relatorio em PDF
+
+- Foi escolhida a biblioteca `ReportLab`.
+- O PDF passou a ser gerado por um controller dedicado separado do controller de dados.
+- O relatorio ganhou cabecalho com:
+- nome da empresa
+- nome do medico
+- CRM
+- periodo do relatorio
+- O relatorio passou a aceitar tambem o caso de `Todos os medicos`, quebrando o documento por medico.
+- A tabela do relatorio foi definida com as colunas:
+- `Nº`
+- `Codigo`
+- `Paciente`
+- `Tipo`
+- `Pagamento`
+- `Valor`
+- `Observacao`
+- A coluna `Nº` passou a ser sequencial dentro do conjunto filtrado, e nao o `id` da consulta.
+- O `Codigo` da consulta passou a aparecer logo apos `Nº`.
+- A coluna `Horário` foi removida depois dos testes visuais.
+- A observacao passou a ser limitada aos 100 primeiros caracteres.
+- O relatorio passou a exibir totais por forma de pagamento e total geral de faturamento.
+- O PDF passou a abrir no navegador em vez de baixar automaticamente.
+- O PDF passou a abrir em nova aba a partir da pagina do admin.
+- O PDF ganhou paginacao no rodape no formato `pagina atual / total`.
+- O layout do PDF foi refinado com:
+- cabecalho institucional
+- tabela principal estilizada
+- box de totais
+- quebra de pagina por medico
+
+### Logo da clinica
+
+- Foi definido um caminho fixo para o logo usado no PDF:
+- `src/clinic_assets/logo-clinica.png`
+- Foi criado um README no diretorio explicando esse caminho.
+- O gerador do PDF passou a tentar incluir automaticamente o logo no cabecalho quando o arquivo existir.
+
+### Ferramentas operacionais
+
+- Foi criado um `Makefile` na raiz do projeto.
+- Os atalhos definidos foram:
+- `make destroy`
+- `make down`
+- `make build`
+- `make up`
+- `make migrations`
+- `make fpop`
+- Foi criado o comando `seed_demo_data` para popular o banco com dados falsos de teste.
+- O comando cria especialidades, medicos, pacientes, consultas e um usuario de recepcao para testes.
+
+### Logging
+
+- Foi adicionada configuracao global de `LOGGING` no `settings.py`.
+- A estrategia escolhida foi usar apenas o `root logger`.
+- Foi decidido que o uso padrao no codigo sera com chamadas diretas como:
+- `logging.info(...)`
+- `logging.debug(...)`
+
+### Observacao importante para retomada
+
+- A pagina de relatorio do admin ja gera o PDF real.
+- A API DRF de relatorio tambem ja gera o PDF real.
+- O proximo passo natural, se necessario, e refinar layout, fontes, logo e regras de negocio do relatorio com base em testes reais de uso.
+
+## 2026-03-30
+
+### Novo foco da conversa
+
+Consolidar o fluxo de relatorios em PDF, melhorar a apresentacao do documento e iniciar a modelagem financeira de repasse entre medico e clinica.
+
+### Ajustes no relatorio em PDF
+
+- O PDF passou a abrir diretamente no navegador, em vez de forcar download automatico.
+- A abertura do PDF a partir da pagina do admin passou a ocorrer em nova aba.
+- O titulo interno do PDF foi definido como `Relatorio de Consultas`.
+- Foi adicionada paginacao no rodape do PDF no formato `pagina atual / total de paginas`.
+- O rodape passou a exibir `Portal MedSync`.
+- O layout do PDF foi refinado para ficar mais profissional, com:
+- cabecalho institucional
+- tabela principal com melhor alinhamento
+- box de totais
+- quebra de pagina por medico no relatorio consolidado
+- Foi removida a coluna `Horário` da tabela principal do relatorio.
+- A tabela principal passou a ter as colunas:
+- `Nº`
+- `Codigo`
+- `Paciente`
+- `Tipo`
+- `Pagamento`
+- `Valor`
+- `Observacao`
+- A tabela principal foi centralizada e recebeu mais respiro nas laterais.
+- O logo da clinica foi ampliado no cabecalho do PDF.
+- O cabecalho foi reorganizado para usar:
+- logo a esquerda
+- `MedSync` e `Relatorio de Consultas` centralizados na coluna da direita
+- quadro com `Medico`, `CRM` e `Periodo` alinhado a direita
+
+### Logo da clinica no PDF
+
+- Foi decidido que o logo usado no PDF nao deve ficar em `staticfiles`.
+- Foi definido um caminho proprio para o asset institucional:
+- `src/clinic_assets/logo-clinica.png`
+- Foi adicionada a configuracao `CLINIC_LOGO_PATH` no `settings.py`.
+- O gerador do PDF passou a tentar carregar esse arquivo automaticamente quando ele existir.
+
+### Logging
+
+- Foi decidido usar configuracao global de `logging` no projeto, sem precisar registrar app por app.
+- O `settings.py` passou a ter configuracao de `LOGGING` usando apenas o `root logger`.
+- O formato escolhido para os logs foi:
+- `data/hora | nivel | modulo | mensagem`
+- Foi decidido que o padrao de uso no codigo sera:
+- `logging.info(...)`
+- `logging.debug(...)`
+- sem usar `logger = logging.getLogger(__name__)`
+
+### Regras de repasse financeiro
+
+- Foi decidido modelar o repasse por medico e forma de pagamento.
+- Foi criado o model `DoctorPaymentSplitRule`.
+- Cada regra possui:
+- medico
+- forma de pagamento
+- percentual do medico
+- percentual da clinica
+- ativo
+- Foi definida a validacao de que os percentuais devem somar exatamente `100`.
+- Foi criado o admin de `Regras de repasse`.
+
+### Snapshot financeiro na consulta
+
+- Foi decidido que a consulta deve guardar uma fotografia dos dados financeiros aplicados no momento da criacao.
+- `Appointment` passou a armazenar:
+- `doctor_percentage`
+- `clinic_percentage`
+- `doctor_amount`
+- `clinic_amount`
+- O calculo do repasse passou a acontecer na criacao da consulta.
+- A consulta agora depende de existir uma regra ativa de repasse para o medico e a forma de pagamento.
+- A logica de arredondamento foi definida assim:
+- o eventual centavo residual deve favorecer a clinica
+- o ajuste final fica no valor da clinica
+- o medico recebe o restante
+- Foi decidido que esses campos financeiros devem aparecer apenas como leitura na edicao da consulta.
+
+### Ajustes no seed de dados falsos
+
+- O comando `seed_demo_data` foi atualizado para refletir a modelagem financeira atual.
+- O seed agora cria regras de repasse para os medicos de teste em todas as formas de pagamento.
+- O seed continua criando especialidades, medicos, pacientes, consultas e usuario de recepcao.
+
+### Data de nascimento do paciente
+
+- Foi decidido que `data de nascimento` do paciente deve ser obrigatoria.
+- O model `Client` passou a exigir `birth_date`.
+- O formulario do admin de `Paciente` passou a exigir `Data de nascimento`.
+- Foi criada migration especifica para esse ajuste.
+- O seed de dados falsos passou a gerar data de nascimento para todos os pacientes criados.
+
+### Observacao importante para retomada
+
+- O relatorio em PDF ja esta funcional e com layout refinado.
+- A base de repasse financeiro ja foi modelada, mas ainda pode exigir evolucao futura para relatórios financeiros detalhados.
+- O proximo passo natural, se necessario, e levar os valores de repasse para relatorios financeiros especificos e telas operacionais da clinica.

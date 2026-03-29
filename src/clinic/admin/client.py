@@ -12,7 +12,7 @@ class ClientAdminForm(forms.ModelForm):
 
     birth_date = forms.DateField(
         label="Data de nascimento",
-        required=False,
+        required=True,
         input_formats=["%d/%m/%Y"],
         widget=DateInput(
             format="%d/%m/%Y",
@@ -22,6 +22,7 @@ class ClientAdminForm(forms.ModelForm):
         ),
         help_text="Informe a data de nascimento no formato dia/mes/ano.",
         error_messages={
+            "required": "Informe a data de nascimento do paciente.",
             "invalid": (
                 "Informe a data de nascimento com dia, mes e ano completos "
                 "no formato dd/mm/aaaa."

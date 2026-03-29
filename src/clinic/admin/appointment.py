@@ -2,9 +2,18 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.contrib import admin
+from django.contrib.admin import helpers
+from django.http import FileResponse
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from rangefilter.filters import DateRangeFilterBuilder
 
+from clinic.controllers import (
+    AppointmentReportDataController,
+    AppointmentReportPdfController,
+)
 from clinic.models import Appointment
+from clinic.report_forms import AppointmentReportForm
 
 
 class AppointmentAdminForm(forms.ModelForm):
@@ -68,23 +77,117 @@ class AppointmentAdminForm(forms.ModelForm):
 class AppointmentAdmin(admin.ModelAdmin):
     """Configuração do admin para consultas."""
 
+    change_list_template = "admin/clinic/appointment/change_list.html"
     form = AppointmentAdminForm
     autocomplete_fields = ("client", "doctor")
-    readonly_fields = ("created_by",)
+    readonly_fields = (
+        "created_by",
+        "code",
+        "doctor_percentage",
+        "clinic_percentage",
+        "doctor_amount",
+        "clinic_amount",
+    )
     list_display = (
+        "code",
         "client",
         "doctor",
         "created_by",
         "consultation_type",
         "amount_paid",
         "payment_method",
-        "is_deleted",
     )
-    search_fields = ("client__full_name", "doctor__full_name")
+    search_fields = ("code", "client__full_name", "doctor__full_name")
     list_filter = (
         "doctor",
         ("created_at", DateRangeFilterBuilder(title="periodo de criacao")),
     )
+
+    def get_urls(self):
+        """Adiciona as URLs customizadas do admin de consultas."""
+        custom_urls = [
+            path(
+                "report/",
+                self.admin_site.admin_view(self.report_view),
+                name="clinic_appointment_report",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def changelist_view(self, request, extra_context=None):
+        """Adiciona o link da página de relatório ao changelist."""
+        extra_context = extra_context or {}
+        extra_context["report_url"] = reverse("admin:clinic_appointment_report")
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def report_view(self, request):
+        """Exibe a página inicial de emissão do relatório em PDF."""
+        form = AppointmentReportForm(request.POST or None)
+
+        if request.method == "POST" and form.is_valid():
+            report_scope = "all_doctors" if form.cleaned_data["doctor"] == "all" else "doctor"
+            doctor = None if report_scope == "all_doctors" else form.cleaned_data["doctor"]
+
+            data_controller = AppointmentReportDataController()
+            report_data = data_controller.get_report_data(
+                report_scope=report_scope,
+                doctor=doctor,
+                start_date=form.cleaned_data["start_date"],
+                end_date=form.cleaned_data["end_date"],
+            )
+            pdf_controller = AppointmentReportPdfController()
+            pdf_file = pdf_controller.generate_pdf(report_data)
+
+            return FileResponse(
+                pdf_file,
+                as_attachment=False,
+                filename=self._build_report_filename(report_data),
+                content_type="application/pdf",
+            )
+
+        fieldsets = (
+            (
+                None,
+                {
+                    "fields": ("doctor", "start_date", "end_date"),
+                },
+            ),
+        )
+        admin_form = helpers.AdminForm(
+            form=form,
+            fieldsets=fieldsets,
+            prepopulated_fields={},
+            readonly_fields=(),
+            model_admin=self,
+        )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": "Emitir relatório de consultas",
+            "subtitle": "Escolha o médico e o período do relatório.",
+            "form": form,
+            "adminform": admin_form,
+            "media": self.media + admin_form.media,
+        }
+
+        return TemplateResponse(
+            request,
+            "admin/clinic/appointment/report_form.html",
+            context,
+        )
+
+    @staticmethod
+    def _build_report_filename(report_data):
+        """Monta o nome do arquivo PDF a partir do escopo e do período."""
+        start_date = report_data["period"]["start_date"].replace("-", "")
+        end_date = report_data["period"]["end_date"].replace("-", "")
+
+        if report_data["scope"] == "doctor":
+            doctor_name = report_data["header"]["doctor_name"].lower().replace(" ", "-")
+            return f"relatorio-consultas-{doctor_name}-{start_date}-a-{end_date}.pdf"
+
+        return f"relatorio-consultas-todos-os-medicos-{start_date}-a-{end_date}.pdf"
 
     def get_fields(self, request, obj=None):
         """Exibe o campo de auditoria apenas na edição."""
@@ -92,6 +195,16 @@ class AppointmentAdmin(admin.ModelAdmin):
 
         if obj is None and "created_by" in fields:
             fields.remove("created_by")
+        if obj is None and "code" in fields:
+            fields.remove("code")
+        if obj is None and "doctor_percentage" in fields:
+            fields.remove("doctor_percentage")
+        if obj is None and "clinic_percentage" in fields:
+            fields.remove("clinic_percentage")
+        if obj is None and "doctor_amount" in fields:
+            fields.remove("doctor_amount")
+        if obj is None and "clinic_amount" in fields:
+            fields.remove("clinic_amount")
 
         return fields
 

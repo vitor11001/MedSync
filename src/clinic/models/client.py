@@ -19,8 +19,6 @@ class Client(BaseModelDjango, SoftDeleteModel):
     )
     birth_date = models.DateField(
         "data de nascimento",
-        null=True,
-        blank=True,
         help_text="Data de nascimento do paciente.",
     )
     sex = models.CharField(

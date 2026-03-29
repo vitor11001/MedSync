@@ -1,0 +1,31 @@
+{% extends "admin/change_form.html" %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Início</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url 'admin:clinic_appointment_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; Emitir relatório
+  </div>
+{% endblock %}
+
+{% block object-tools %}{% endblock %}
+
+{% block submit_buttons_bottom %}
+  <div class="submit-row">
+    <input type="submit" value="Emitir relatório em PDF" class="default">
+  </div>
+{% endblock %}
+
+{% block admin_change_form_document_ready %}
+  {{ block.super }}
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const form = document.getElementById("appointment_form");
+
+      if (form) {
+        form.setAttribute("target", "_blank");
+      }
+    });
+  </script>
+{% endblock %}
