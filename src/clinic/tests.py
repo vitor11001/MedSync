@@ -2,7 +2,7 @@ from datetime import date
 
 from django.test import TestCase
 
-from clinic.admin.client import ClientAdminForm
+from clinic.forms import ClientAdminForm
 from clinic.models import Client
 
 

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from clinic.models import Appointment
 
@@ -8,6 +8,17 @@ class AppointmentReportDataController:
     """Controller responsável por montar os dados do relatório de consultas."""
 
     COMPANY_NAME = "MedSync"
+    REPORT_COLUMNS = [
+        "Nº",
+        "Código",
+        "Paciente",
+        "Tipo",
+        "Pagamento",
+        "Valor Total",
+        "Valor Médico",
+        "Valor Clínica",
+        "Observação",
+    ]
 
     def get_report_data(self, *, report_scope, doctor, start_date, end_date):
         """Retorna os dados do relatório no formato adequado ao escopo solicitado."""
@@ -56,7 +67,7 @@ class AppointmentReportDataController:
             "summary": {
                 "appointments_count": len(rows),
             },
-            "columns": ["Nº", "Código", "Paciente", "Tipo", "Pagamento", "Valor", "Observação"],
+            "columns": self.REPORT_COLUMNS,
             "rows": rows,
             "totals": self._build_totals(appointments),
         }
@@ -105,7 +116,7 @@ class AppointmentReportDataController:
                 ),
                 "doctors_count": len(doctors),
             },
-            "columns": ["Nº", "Código", "Paciente", "Tipo", "Pagamento", "Valor", "Observação"],
+            "columns": self.REPORT_COLUMNS,
             "doctors": doctors,
             "totals": self._build_totals(all_appointments),
         }
@@ -122,11 +133,26 @@ class AppointmentReportDataController:
         """Calcula os totais por forma de pagamento e o faturamento geral."""
         totals_by_payment_method = defaultdict(lambda: Decimal("0.00"))
         grand_total = Decimal("0.00")
+        doctor_total = Decimal("0.00")
+        clinic_total = Decimal("0.00")
 
         for appointment in appointments:
             payment_method = appointment.get_payment_method_display()
             totals_by_payment_method[payment_method] += appointment.amount_paid
             grand_total += appointment.amount_paid
+            doctor_total += appointment.doctor_amount or Decimal("0.00")
+            clinic_total += appointment.clinic_amount or Decimal("0.00")
+
+        if grand_total > Decimal("0.00"):
+            doctor_percentage = (
+                (doctor_total / grand_total) * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            clinic_percentage = (
+                (clinic_total / grand_total) * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            doctor_percentage = Decimal("0.00")
+            clinic_percentage = Decimal("0.00")
 
         return {
             "by_payment_method": [
@@ -136,6 +162,10 @@ class AppointmentReportDataController:
                 }
                 for label, value in totals_by_payment_method.items()
             ],
+            "doctor_total": f"{doctor_total:.2f}".replace(".", ","),
+            "clinic_total": f"{clinic_total:.2f}".replace(".", ","),
+            "doctor_percentage": f"{doctor_percentage:.2f}".replace(".", ","),
+            "clinic_percentage": f"{clinic_percentage:.2f}".replace(".", ","),
             "grand_total": f"{grand_total:.2f}".replace(".", ","),
         }
 
@@ -150,6 +180,8 @@ class AppointmentReportDataController:
             "Paciente": appointment.client.full_name.title(),
             "Tipo": appointment.get_consultation_type_display(),
             "Pagamento": appointment.get_payment_method_display(),
-            "Valor": f"{appointment.amount_paid:.2f}".replace(".", ","),
+            "Valor Total": f"{appointment.amount_paid:.2f}".replace(".", ","),
+            "Valor Médico": f"{(appointment.doctor_amount or Decimal('0.00')):.2f}".replace(".", ","),
+            "Valor Clínica": f"{(appointment.clinic_amount or Decimal('0.00')):.2f}".replace(".", ","),
             "Observação": notes,
         }

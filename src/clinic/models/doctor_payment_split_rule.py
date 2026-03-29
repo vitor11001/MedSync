@@ -3,11 +3,11 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from _seed.models import BaseModelDjango, SoftDeleteModel
+from _seed.models import BaseModelDjango
 from clinic.models.appointment import Appointment
 
 
-class DoctorPaymentSplitRule(BaseModelDjango, SoftDeleteModel):
+class DoctorPaymentSplitRule(BaseModelDjango):
     """Define a regra de repasse de um médico por forma de pagamento."""
 
     doctor = models.ForeignKey(
@@ -47,7 +47,7 @@ class DoctorPaymentSplitRule(BaseModelDjango, SoftDeleteModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["doctor", "payment_method"],
-                condition=models.Q(is_deleted=False, is_active=True),
+                condition=models.Q(is_active=True),
                 name="unique_active_split_rule_per_doctor_payment_method",
             ),
         ]

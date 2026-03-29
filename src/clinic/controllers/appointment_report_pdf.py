@@ -246,7 +246,9 @@ class AppointmentReportPdfController:
                     Paragraph(row["Paciente"], styles["table_cell"]),
                     Paragraph(row["Tipo"], styles["table_cell"]),
                     Paragraph(row["Pagamento"], styles["table_cell"]),
-                    Paragraph(row["Valor"], styles["table_cell_right"]),
+                    Paragraph(row["Valor Total"], styles["table_cell_right"]),
+                    Paragraph(row["Valor Médico"], styles["table_cell_right"]),
+                    Paragraph(row["Valor Clínica"], styles["table_cell_right"]),
                     Paragraph(row["Observação"] or "-", styles["table_cell"]),
                 ]
             )
@@ -257,11 +259,13 @@ class AppointmentReportPdfController:
             colWidths=[
                 12 * mm,
                 30 * mm,
-                58 * mm,
-                30 * mm,
-                38 * mm,
-                22 * mm,
-                70 * mm,
+                50 * mm,
+                28 * mm,
+                32 * mm,
+                24 * mm,
+                24 * mm,
+                24 * mm,
+                49 * mm,
             ],
             hAlign="CENTER",
         )
@@ -275,7 +279,7 @@ class AppointmentReportPdfController:
                     ("LEADING", (0, 0), (-1, -1), 10),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("ALIGN", (0, 0), (1, -1), "CENTER"),
-                    ("ALIGN", (5, 0), (5, -1), "RIGHT"),
+                    ("ALIGN", (5, 0), (7, -1), "RIGHT"),
                     ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
                     ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
                     ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
@@ -299,6 +303,19 @@ class AppointmentReportPdfController:
                     Paragraph(f"R$ {payment_total['value']}", styles["totals_amount"]),
                 ]
             )
+
+        totals_table_data.extend(
+            [
+                [
+                    Paragraph("Total do médico", styles["totals_label"]),
+                    Paragraph(f"R$ {totals['doctor_total']}", styles["totals_amount"]),
+                ],
+                [
+                    Paragraph("Total da clínica", styles["totals_label"]),
+                    Paragraph(f"R$ {totals['clinic_total']}", styles["totals_amount"]),
+                ],
+            ]
+        )
 
         totals_table_data.append(
             [

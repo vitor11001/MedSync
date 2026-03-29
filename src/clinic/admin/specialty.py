@@ -1,15 +1,7 @@
-from django import forms
 from django.contrib import admin
 
+from clinic.forms import SpecialtyAdminForm
 from clinic.models import Specialty
-
-
-class SpecialtyAdminForm(forms.ModelForm):
-    """Formulário do admin para especialidades."""
-
-    class Meta:
-        model = Specialty
-        exclude = ("is_deleted", "deleted_at")
 
 
 @admin.register(Specialty)

@@ -20,27 +20,32 @@ class Command(BaseCommand):
     """Popula o banco com dados falsos para testes do fluxo da clínica."""
 
     help = "Create demo data for doctors, clients and appointments."
+    SPECIALTY_NAMES = (
+        "mastologista",
+        "clinico geral",
+        "medico do trabalho",
+    )
 
     DOCTOR_DATA = [
         {
             "full_name": "Aluizio João da Silva Filho",
             "crm": "6654",
-            "specialties": ["Mastologista"],
+            "specialties": ["mastologista"],
         },
         {
             "full_name": "Marcos Antonio Pereira",
             "crm": "8123",
-            "specialties": ["Clinico Geral"],
+            "specialties": ["clinico geral"],
         },
         {
             "full_name": "Luciana Bezerra Costa",
             "crm": "9231",
-            "specialties": ["Medico do Trabalho"],
+            "specialties": ["medico do trabalho"],
         },
         {
             "full_name": "Patricia Andrade Lima",
             "crm": "10452",
-            "specialties": ["Clinico Geral", "Medico do Trabalho"],
+            "specialties": ["clinico geral", "medico do trabalho"],
         },
     ]
 
@@ -135,7 +140,7 @@ class Command(BaseCommand):
         """Garante as especialidades mínimas usadas pelos dados de teste."""
         specialties = {}
 
-        for name in ("Mastologista", "Clinico Geral", "Medico do Trabalho"):
+        for name in self.SPECIALTY_NAMES:
             specialty, _ = Specialty.objects.get_or_create(name=name)
             specialties[name] = specialty
 
@@ -265,21 +270,10 @@ class Command(BaseCommand):
                 created_by=receptionist,
                 code=Appointment._generate_code(sequence_date=created_at.date()),
                 consultation_type=random.choice(
-                    [
-                        Appointment.ConsultationType.FIRST_CONSULTATION,
-                        Appointment.ConsultationType.RETURN,
-                    ]
+                    list(Appointment.ConsultationType.values)
                 ),
                 amount_paid=self._generate_amount(),
-                payment_method=random.choice(
-                    [
-                        Appointment.PaymentMethod.MONEY,
-                        Appointment.PaymentMethod.PIX,
-                        Appointment.PaymentMethod.CREDIT_CARD,
-                        Appointment.PaymentMethod.DEBIT_CARD,
-                        Appointment.PaymentMethod.HEALTH_INSURANCE,
-                    ]
-                ),
+                payment_method=random.choice(list(Appointment.PaymentMethod.values)),
                 notes=random.choice(self.NOTES),
             )
             Appointment.objects.filter(pk=appointment.pk).update(

@@ -25,6 +25,9 @@ class AppointmentDailySequence(models.Model):
 class Appointment(BaseModelDjango, SoftDeleteModel):
     """Model que representa a consulta."""
 
+    DEFAULT_DOCTOR_PERCENTAGE = Decimal("70.00")
+    DEFAULT_CLINIC_PERCENTAGE = Decimal("30.00")
+
     class ConsultationType(models.TextChoices):
         """Opções de tipo de consulta."""
 
@@ -205,7 +208,7 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         self.clinic_amount = clinic_amount
 
     def _get_active_payment_split_rule(self):
-        """Busca a regra ativa de repasse para o médico e a forma de pagamento."""
+        """Busca a regra ativa ou aplica a regra padrão de repasse."""
         from clinic.models import DoctorPaymentSplitRule
 
         try:
@@ -214,10 +217,15 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
                 payment_method=self.payment_method,
                 is_active=True,
             )
-        except DoctorPaymentSplitRule.DoesNotExist as exc:
-            raise ValidationError(
-                "Não existe regra de repasse ativa para este médico e esta forma de pagamento."
-            ) from exc
+        except DoctorPaymentSplitRule.DoesNotExist:
+            return type(
+                "DefaultPaymentSplitRule",
+                (),
+                {
+                    "doctor_percentage": self.DEFAULT_DOCTOR_PERCENTAGE,
+                    "clinic_percentage": self.DEFAULT_CLINIC_PERCENTAGE,
+                },
+            )()
 
     def __str__(self) -> str:
         """Retorna a representação textual da consulta."""
