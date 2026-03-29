@@ -1,15 +1,13 @@
-"""Pacote de administracao do app clinic."""
+"""Pacote de administração do app clinic."""
 
 from .appointment import AppointmentAdmin
 from .client import ClientAdmin
 from .doctor import DoctorAdmin
-from .email import EmailAdmin
-from .phone import PhoneAdmin
+from .specialty import SpecialtyAdmin
 
 __all__ = [
     "AppointmentAdmin",
     "ClientAdmin",
     "DoctorAdmin",
-    "EmailAdmin",
-    "PhoneAdmin",
+    "SpecialtyAdmin",
 ]

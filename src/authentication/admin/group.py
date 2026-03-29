@@ -14,4 +14,4 @@ except NotRegistered:
 
 @admin.register(AuthenticationGroup)
 class AuthenticationGroupAdmin(GroupAdmin):
-    """Configuracao do admin para grupos de usuarios."""
+    """Configuração do admin para grupos de usuários."""

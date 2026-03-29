@@ -210,3 +210,87 @@ Organizar o Django Admin de forma modular e preparar a aplicacao para execucao e
 ### Proximo ponto natural da conversa
 
 Definir se o proximo passo sera criar `docker-compose.yml`, configurar Postgres ou continuar evoluindo o admin do Django.
+
+## 2026-03-28
+
+### Novo foco da conversa
+
+Revisar o estado real do projeto, corrigir a base tecnica e iniciar a personalizacao do Django Admin como interface principal do sistema.
+
+### Diagnostico realizado
+
+- Foi constatado que o projeto tinha models e admin iniciais, mas ainda nao tinha migrations versionadas.
+- Foi constatado que o `migrate` no container falhava porque os apps locais `authentication` e `clinic` nao tinham migrations commitadas.
+- Foi constatado que os testes existentes estavam praticamente ausentes.
+
+### Ajustes tecnicos iniciais
+
+- Foram geradas as migrations iniciais dos apps `authentication` e `clinic`.
+- O script `run-backend.sh` passou a aceitar `RUN_MAKEMIGRATIONS=true` antes do `RUN_MIGRATIONS=true`.
+- Foi mantido que o fluxo recomendado continua sendo versionar migrations no repositorio, e nao depender de `makemigrations` automatico por padrao.
+
+### Superusuario padrao
+
+- Foi decidido que o sistema deve conseguir criar automaticamente uma conta administrativa padrao.
+- A criacao do admin passou a ocorrer por um comando proprio de gerenciamento: `ensure_default_superuser`.
+- O comando cria o superusuario apenas se ainda nao existir nenhum superusuario no banco.
+- As configuracoes do superusuario padrao passaram a usar `pydantic-settings`, em vez de `os.getenv` direto.
+- O `docker-compose.yml` ficou configurado para subir com `CREATE_SUPERUSER=true`.
+- A senha padrao definida para bootstrap local ficou mais forte que a inicial.
+
+### Ajustes de navegacao e identidade do admin
+
+- A rota raiz `/` passou a redirecionar para `/admin/`.
+- O nome exibido no admin foi definido como `Portal MedSync`.
+- O idioma global do Django foi configurado como `pt-br`.
+- O fuso horario global do Django foi configurado como `America/Recife`.
+
+### Organizacao visual do admin
+
+- O app `authentication` passou a aparecer no admin como `Usuarios e Acessos`.
+- O app `clinic` passou a aparecer no admin como `Clinica`.
+- O model de `Group` passou a aparecer junto da area de autenticacao por meio de um proxy model no app `authentication`.
+- Os nomes exibidos dos models no admin passaram para portugues:
+- `Usuario`
+- `Grupo`
+- `Paciente`
+- `Medico`
+- `Consulta`
+- `Telefone`
+- `Email`
+
+### Ajustes de estaticos
+
+- Foi adicionado `STATIC_ROOT` no settings para permitir `collectstatic`.
+- Foi validado que o arquivo estatico customizado do admin e encontrado pelo Django.
+- Foi validado que `python manage.py collectstatic --noinput` funciona corretamente.
+
+### Ajustes no cadastro de paciente
+
+- Foi decidido que o campo `sexo` do paciente deve ser definido no proprio model com duas opcoes:
+- `Masculino`
+- `Feminino`
+- O admin de `Paciente` passou a usar um formulario customizado.
+- No formulario de `Paciente`, os campos `is_deleted` e `deleted_at` nao devem aparecer na criacao nem na edicao.
+- O campo `cpf` passou a aceitar apenas 11 numeros e deve ser salvo formatado como `xxx.xxx.xxx-xx`.
+- Foi adicionada mascara visual para CPF no formulario do admin.
+- O campo `data de nascimento` passou a ser digitado manualmente no formato `dd/mm/aaaa`.
+- Foi adicionada mascara visual para `data de nascimento`.
+- Foi definido que entradas incompletas como `01/03/98` devem ser rejeitadas com mensagem clara, exigindo ano completo.
+
+### Decisao sobre telefones e emails
+
+- Foi tentada uma mudanca estrutural para transformar `Phone` e `Email` em registros com dono direto.
+- Depois da conversa, essa mudanca foi desfeita porque a regra real do negocio permite compartilhamento de telefone entre pessoas, como marido e mulher ou mae e filho.
+- A migration `0003` que fazia essa alteracao estrutural foi removida.
+- Os models voltaram a usar `ManyToMany` para telefones e emails.
+- Mesmo mantendo a modelagem atual, foi decidido que `Telefone` e `Email` nao devem mais aparecer como itens independentes no menu do admin.
+
+### Ponto em aberto
+
+- Ainda falta definir a melhor UX para telefones e emails dentro do cadastro de `Paciente` e, depois, de `Medico`.
+- Existe a restricao atual de tentar melhorar isso sem alterar os models.
+
+### Proximo ponto natural da conversa
+
+Definir como `telefone` e `email` devem aparecer e ser cadastrados no admin de `Paciente` sem expor esses models no menu lateral.

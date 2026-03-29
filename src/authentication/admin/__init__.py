@@ -1,4 +1,4 @@
-"""Pacote de administracao do app authentication."""
+"""Pacote de administração do app authentication."""
 
 from .group import AuthenticationGroupAdmin
 from .user import CustomUserAdmin

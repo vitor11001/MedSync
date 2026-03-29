@@ -19,11 +19,10 @@ services:
     container_name: medsync-web
     depends_on:
       - dblocal
-    ports:
-      - "8000:8000"
     volumes:
       - ./src:/app/src
       - ./infra/scripts:/app/infra/scripts
+      - static_data:/app/src/staticfiles
     environment:
       APP_RUN_PORT: 8000
       DB_HOST: dblocal
@@ -39,5 +38,18 @@ services:
       DJANGO_SUPERUSER_FIRST_NAME: "Admin"
       DJANGO_SUPERUSER_LAST_NAME: "User"
 
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: medsync-nginx
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/app/staticfiles:ro
+
 volumes:
   postgres_data:
+  static_data:

@@ -7,18 +7,19 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
     """Model que representa a consulta."""
 
     class ConsultationType(models.TextChoices):
-        """Opcoes de tipo de consulta."""
+        """Opções de tipo de consulta."""
 
         FIRST_CONSULTATION = "first_consultation", "Primeira consulta"
         RETURN = "return", "Retorno"
 
     class PaymentMethod(models.TextChoices):
-        """Opcoes de forma de pagamento."""
+        """Opções de forma de pagamento."""
 
         MONEY = "money", "Dinheiro"
         PIX = "pix", "Pix"
         CREDIT_CARD = "credit_card", "Cartao de Credito"
         DEBIT_CARD = "debit_card", "Cartao de Debito"
+        HEALTH_INSURANCE = "health_insurance", "Plano de Saude"
 
     client = models.ForeignKey(
         "clinic.Client",
@@ -33,6 +34,15 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         on_delete=models.PROTECT,
         related_name="appointments",
         help_text="Medico responsavel pela consulta.",
+    )
+    created_by = models.ForeignKey(
+        "authentication.User",
+        verbose_name="criado por",
+        on_delete=models.SET_NULL,
+        related_name="created_appointments",
+        null=True,
+        blank=True,
+        help_text="Usuario que criou a consulta.",
     )
     consultation_type = models.CharField(
         "tipo de consulta",
@@ -64,5 +74,5 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         verbose_name_plural = "Consultas"
 
     def __str__(self) -> str:
-        """Retorna a representacao textual da consulta."""
+        """Retorna a representação textual da consulta."""
         return f"{self.client} - {self.doctor}"
