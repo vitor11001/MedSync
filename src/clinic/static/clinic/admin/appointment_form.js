@@ -1,23 +1,28 @@
 (function ($) {
   const initializeAmountMask = () => {
-    const $amountInput = $("#id_amount_paid");
+    const $amountInputs = $(".js-money-mask");
 
-    if (!$amountInput.length || typeof $.fn.mask !== "function") {
+    if (!$amountInputs.length || typeof $.fn.mask !== "function") {
       return;
     }
 
-    if ($amountInput.data("mask-initialized")) {
-      return;
-    }
+    $amountInputs.each(function () {
+      const $input = $(this);
 
-    $amountInput.mask("#########0,00", {
-      reverse: true,
+      if ($input.data("mask-initialized")) {
+        return;
+      }
+
+      $input.mask("#########0,00", {
+        reverse: true,
+      });
+      $input.data("mask-initialized", true);
     });
-    $amountInput.data("mask-initialized", true);
   };
 
   initializeAmountMask();
   $(initializeAmountMask);
   document.addEventListener("DOMContentLoaded", initializeAmountMask);
   window.addEventListener("load", initializeAmountMask);
+  document.addEventListener("formset:added", initializeAmountMask);
 })(window.jQuery);

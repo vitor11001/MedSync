@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from django.contrib import admin
 from django.contrib.admin import helpers
+from django.db.models import Prefetch, Sum
 from django.core.exceptions import PermissionDenied
 from django.http import FileResponse
 from django.template.response import TemplateResponse
@@ -12,6 +15,106 @@ from clinic.controllers import (
 )
 from clinic.forms import AppointmentAdminForm, AppointmentReportForm
 from clinic.models import Appointment
+from payments.forms import AppointmentPaymentInlineForm, AppointmentPaymentInlineFormSet
+from payments.models import AppointmentPayment
+
+
+class AppointmentPaymentInline(admin.TabularInline):
+    """Exibe os pagamentos diretamente na tela da consulta."""
+
+    model = AppointmentPayment
+    form = AppointmentPaymentInlineForm
+    formset = AppointmentPaymentInlineFormSet
+    extra = 1
+    min_num = 1
+    validate_min = True
+    can_delete = False
+    verbose_name = "Pagamento"
+    verbose_name_plural = "Pagamentos"
+    readonly_fields = (
+        "display_doctor_percentage",
+        "display_clinic_percentage",
+        "display_doctor_amount",
+        "display_clinic_amount",
+        "received_at",
+        "created_by",
+    )
+
+    def get_queryset(self, request):
+        """Evita consultas adicionais ao exibir os pagamentos existentes."""
+        return super().get_queryset(request).select_related("created_by")
+
+    def get_fields(self, request, obj=None):
+        """Exibe apenas os campos necessários em cada estágio do fluxo."""
+        if obj is None:
+            return ("payment_method", "amount")
+
+        return (
+            "payment_method",
+            "amount",
+            "display_doctor_percentage",
+            "display_clinic_percentage",
+            "display_doctor_amount",
+            "display_clinic_amount",
+            "received_at",
+            "created_by",
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        """Trava a edição dos pagamentos após a criação da consulta."""
+        if obj is None:
+            return tuple()
+
+        return (
+            "payment_method",
+            "amount",
+            "display_doctor_percentage",
+            "display_clinic_percentage",
+            "display_doctor_amount",
+            "display_clinic_amount",
+            "received_at",
+            "created_by",
+        )
+
+    def get_extra(self, request, obj=None, **kwargs):
+        """Exibe linha em branco apenas na criação da consulta."""
+        return 1 if obj is None else 0
+
+    def has_add_permission(self, request, obj=None):
+        """Permite incluir pagamentos apenas na criação da consulta."""
+        return obj is None and super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        """Impede remoção de pagamentos pelo admin."""
+        return False
+
+    @staticmethod
+    def _format_decimal(value):
+        """Formata decimal com vírgula para exibição no admin."""
+        if value is None:
+            return "-"
+
+        return f"{value:.2f}".replace(".", ",")
+
+    @admin.display(description="Percentual do médico (%)")
+    def display_doctor_percentage(self, obj):
+        """Exibe o percentual do médico com duas casas decimais."""
+        return self._format_decimal(obj.doctor_percentage)
+
+    @admin.display(description="Percentual da clínica (%)")
+    def display_clinic_percentage(self, obj):
+        """Exibe o percentual da clínica com duas casas decimais."""
+        return self._format_decimal(obj.clinic_percentage)
+
+    @admin.display(description="Valor do médico (R$)")
+    def display_doctor_amount(self, obj):
+        """Exibe o valor do médico com duas casas decimais."""
+        return self._format_decimal(obj.doctor_amount)
+
+    @admin.display(description="Valor da clínica (R$)")
+    def display_clinic_amount(self, obj):
+        """Exibe o valor da clínica com duas casas decimais."""
+        return self._format_decimal(obj.clinic_amount)
 
 
 @admin.register(Appointment)
@@ -20,14 +123,14 @@ class AppointmentAdmin(admin.ModelAdmin):
 
     change_list_template = "admin/clinic/appointment/change_list.html"
     form = AppointmentAdminForm
+    inlines = (AppointmentPaymentInline,)
     autocomplete_fields = ("client", "doctor")
     readonly_fields = (
         "created_by",
         "code",
-        "display_doctor_percentage",
-        "display_clinic_percentage",
-        "display_doctor_amount",
-        "display_clinic_amount",
+        "display_total_paid",
+        "display_doctor_total",
+        "display_clinic_total",
     )
     list_display = (
         "code",
@@ -35,8 +138,8 @@ class AppointmentAdmin(admin.ModelAdmin):
         "doctor",
         "created_by",
         "consultation_type",
-        "amount_paid",
-        "payment_method",
+        "total_amount",
+        "payments_summary",
     )
     search_fields = ("code", "client__full_name", "doctor__full_name")
     list_filter = (
@@ -44,12 +147,23 @@ class AppointmentAdmin(admin.ModelAdmin):
         ("created_at", DateRangeFilterBuilder(title="periodo de criacao")),
     )
     editable_after_creation_fields = {"notes"}
-    readonly_replacements = {
-        "doctor_percentage": "display_doctor_percentage",
-        "clinic_percentage": "display_clinic_percentage",
-        "doctor_amount": "display_doctor_amount",
-        "clinic_amount": "display_clinic_amount",
-    }
+
+    def get_queryset(self, request):
+        """Prefetch de relacionamentos usados na listagem e na edição."""
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("client", "doctor", "created_by")
+            .prefetch_related(
+                Prefetch(
+                    "payments",
+                    queryset=AppointmentPayment.objects.select_related(
+                        "created_by",
+                        "payment_method",
+                    ).order_by("received_at", "id"),
+                )
+            )
+        )
 
     def get_urls(self):
         """Adiciona as URLs customizadas do admin de consultas."""
@@ -137,42 +251,29 @@ class AppointmentAdmin(admin.ModelAdmin):
 
         return f"relatorio-consultas-todos-os-medicos-{start_date}-a-{end_date}.pdf"
 
-    def _build_display_fields(self):
-        """Monta a sequência base de campos exibidos no formulário do admin."""
-        fields = list(self.form.base_fields.keys())
-        fields.extend(self.readonly_fields)
-
-        for original_field, display_field in self.readonly_replacements.items():
-            original_index = fields.index(original_field) if original_field in fields else None
-            fields = [
-                field_name
-                for field_name in fields
-                if field_name not in {original_field, display_field}
-            ]
-
-            if original_index is not None:
-                fields.insert(original_index, display_field)
-
-        return fields
-
     def get_fields(self, request, obj=None):
-        """Exibe o campo de auditoria apenas na edição."""
-        fields = self._build_display_fields()
+        """Exibe apenas os campos adequados para criação ou visualização."""
+        if obj is None:
+            return (
+                "client",
+                "doctor",
+                "consultation_type",
+                "total_amount",
+                "notes",
+            )
 
-        if obj is None and "created_by" in fields:
-            fields.remove("created_by")
-        if obj is None and "code" in fields:
-            fields.remove("code")
-        if obj is None and "display_doctor_percentage" in fields:
-            fields.remove("display_doctor_percentage")
-        if obj is None and "display_clinic_percentage" in fields:
-            fields.remove("display_clinic_percentage")
-        if obj is None and "display_doctor_amount" in fields:
-            fields.remove("display_doctor_amount")
-        if obj is None and "display_clinic_amount" in fields:
-            fields.remove("display_clinic_amount")
-
-        return fields
+        return (
+            "client",
+            "doctor",
+            "created_by",
+            "code",
+            "consultation_type",
+            "total_amount",
+            "display_total_paid",
+            "display_doctor_total",
+            "display_clinic_total",
+            "notes",
+        )
 
     def get_readonly_fields(self, request, obj=None):
         """Permite edição apenas da observação para o criador da consulta."""
@@ -181,7 +282,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         if obj is None:
             return tuple(readonly_fields)
 
-        fields = self._build_display_fields()
+        fields = list(self.get_fields(request, obj))
 
         if obj.created_by_id == request.user.id:
             return tuple(
@@ -200,25 +301,49 @@ class AppointmentAdmin(admin.ModelAdmin):
 
         return f"{value:.2f}".replace(".", ",")
 
-    @admin.display(description="Percentual do médico (%)")
-    def display_doctor_percentage(self, obj):
-        """Exibe o percentual do médico com duas casas decimais."""
-        return self._format_decimal(obj.doctor_percentage)
+    @staticmethod
+    def _sum_payment_values(obj, field_name):
+        """Soma um campo dos pagamentos usando prefetch quando disponível."""
+        prefetched_payments = getattr(obj, "_prefetched_objects_cache", {}).get("payments")
 
-    @admin.display(description="Percentual da clínica (%)")
-    def display_clinic_percentage(self, obj):
-        """Exibe o percentual da clínica com duas casas decimais."""
-        return self._format_decimal(obj.clinic_percentage)
+        if prefetched_payments is not None:
+            return sum(
+                (getattr(payment, field_name) for payment in prefetched_payments),
+                start=Decimal("0.00"),
+            )
 
-    @admin.display(description="Valor do médico (R$)")
-    def display_doctor_amount(self, obj):
-        """Exibe o valor do médico com duas casas decimais."""
-        return self._format_decimal(obj.doctor_amount)
+        totals = obj.payments.aggregate(total=Sum(field_name))
+        return totals["total"] or Decimal("0.00")
 
-    @admin.display(description="Valor da clínica (R$)")
-    def display_clinic_amount(self, obj):
-        """Exibe o valor da clínica com duas casas decimais."""
-        return self._format_decimal(obj.clinic_amount)
+    @admin.display(description="Pagamentos")
+    def payments_summary(self, obj):
+        """Resume as formas de pagamento usadas na consulta."""
+        prefetched_payments = getattr(obj, "_prefetched_objects_cache", {}).get("payments")
+        payments = (
+            prefetched_payments
+            if prefetched_payments is not None
+            else list(obj.payments.all())
+        )
+
+        if len(payments) == 0:
+            return "-"
+
+        return " | ".join(payment.payment_method_display for payment in payments)
+
+    @admin.display(description="Total pago (R$)")
+    def display_total_paid(self, obj):
+        """Exibe a soma dos pagamentos registrados na consulta."""
+        return self._format_decimal(self._sum_payment_values(obj, "amount"))
+
+    @admin.display(description="Total do médico (R$)")
+    def display_doctor_total(self, obj):
+        """Exibe a soma destinada ao médico nesta consulta."""
+        return self._format_decimal(self._sum_payment_values(obj, "doctor_amount"))
+
+    @admin.display(description="Total da clínica (R$)")
+    def display_clinic_total(self, obj):
+        """Exibe a soma destinada à clínica nesta consulta."""
+        return self._format_decimal(self._sum_payment_values(obj, "clinic_amount"))
 
     def save_model(self, request, obj, form, change):
         """Define o criador e impede edição indevida após a criação."""
@@ -244,6 +369,20 @@ class AppointmentAdmin(admin.ModelAdmin):
                 )
 
         super().save_model(request, obj, form, change)
+
+    def save_formset(self, request, form, formset, change):
+        """Define o criador dos pagamentos gerados junto com a consulta."""
+        instances = formset.save(commit=False)
+
+        for deleted_object in formset.deleted_objects:
+            deleted_object.delete()
+
+        for instance in instances:
+            if isinstance(instance, AppointmentPayment) and instance.created_by_id is None:
+                instance.created_by = request.user
+            instance.save()
+
+        formset.save_m2m()
 
     class Media:
         js = (

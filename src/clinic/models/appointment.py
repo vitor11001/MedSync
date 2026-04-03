@@ -1,6 +1,5 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
-from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -25,9 +24,6 @@ class AppointmentDailySequence(models.Model):
 class Appointment(BaseModelDjango, SoftDeleteModel):
     """Model que representa a consulta."""
 
-    DEFAULT_DOCTOR_PERCENTAGE = Decimal("70.00")
-    DEFAULT_CLINIC_PERCENTAGE = Decimal("30.00")
-
     class ConsultationType(models.TextChoices):
         """Opções de tipo de consulta."""
 
@@ -35,15 +31,6 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         RETURN = "return", "Retorno"
         ASO = "aso", "ASO"
         PROCEDURE = "procedure", "Procedimento"
-
-    class PaymentMethod(models.TextChoices):
-        """Opções de forma de pagamento."""
-
-        MONEY = "money", "Dinheiro"
-        PIX = "pix", "Pix"
-        CREDIT_CARD = "credit_card", "Cartao de Credito"
-        DEBIT_CARD = "debit_card", "Cartao de Debito"
-        HEALTH_INSURANCE = "health_insurance", "Plano de Saude"
 
     client = models.ForeignKey(
         "clinic.Client",
@@ -82,49 +69,11 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         choices=ConsultationType.choices,
         help_text="Tipo da consulta realizada.",
     )
-    amount_paid = models.DecimalField(
-        "valor pago",
+    total_amount = models.DecimalField(
+        "valor total",
         max_digits=10,
         decimal_places=2,
-        help_text="Valor pago pelo paciente na consulta.",
-    )
-    doctor_percentage = models.DecimalField(
-        "percentual do médico",
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Percentual do valor pago destinado ao médico na criação da consulta.",
-    )
-    clinic_percentage = models.DecimalField(
-        "percentual da clínica",
-        max_digits=5,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Percentual do valor pago destinado à clínica na criação da consulta.",
-    )
-    doctor_amount = models.DecimalField(
-        "valor do médico",
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Valor destinado ao médico na criação da consulta.",
-    )
-    clinic_amount = models.DecimalField(
-        "valor da clínica",
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Valor destinado à clínica na criação da consulta.",
-    )
-    payment_method = models.CharField(
-        "forma de pagamento",
-        max_length=20,
-        choices=PaymentMethod.choices,
-        help_text="Forma de pagamento utilizada na consulta.",
+        help_text="Valor total da consulta, que deve bater com a soma dos pagamentos.",
     )
     notes = models.TextField(
         "observacao",
@@ -138,13 +87,11 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
         verbose_name_plural = "Consultas"
 
     def save(self, *args, **kwargs):
-        """Gera o código e congela o repasse financeiro apenas na criação da consulta."""
+        """Gera o código da consulta apenas na criação."""
         is_new = self.pk is None
 
         if is_new and not self.code:
             self.code = self._generate_code()
-        if is_new:
-            self.apply_payment_split_snapshot()
 
         super().save(*args, **kwargs)
 
@@ -171,61 +118,19 @@ class Appointment(BaseModelDjango, SoftDeleteModel):
 
         return f"C-{sequence_date.strftime('%Y%m%d')}-{sequence_value:04d}"
 
-    def apply_payment_split_snapshot(self):
-        """Calcula e congela na consulta o repasse do médico e da clínica.
+    @property
+    def total_paid(self):
+        """Retorna a soma já carregada ou calculada dos pagamentos da consulta."""
+        prefetched_payments = getattr(self, "_prefetched_objects_cache", {}).get("payments")
 
-        Os percentuais são lidos da regra ativa do médico para a forma de
-        pagamento da consulta. Se houver diferença de arredondamento de centavos,
-        o ajuste final é aplicado ao valor da clínica, garantindo que a soma feche
-        exatamente no total pago e que a clínica fique com o centavo residual.
-        """
-        rule = self._get_active_payment_split_rule()
-
-        doctor_percentage = rule.doctor_percentage
-        clinic_percentage = rule.clinic_percentage
-
-        raw_doctor_amount = self.amount_paid * doctor_percentage / Decimal("100")
-        raw_clinic_amount = self.amount_paid * clinic_percentage / Decimal("100")
-
-        doctor_amount = raw_doctor_amount.quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
-        clinic_amount = raw_clinic_amount.quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
-
-        difference = self.amount_paid - (doctor_amount + clinic_amount)
-        clinic_amount = (clinic_amount + difference).quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
-
-        self.doctor_percentage = doctor_percentage
-        self.clinic_percentage = clinic_percentage
-        self.doctor_amount = doctor_amount
-        self.clinic_amount = clinic_amount
-
-    def _get_active_payment_split_rule(self):
-        """Busca a regra ativa ou aplica a regra padrão de repasse."""
-        from clinic.models import DoctorPaymentSplitRule
-
-        try:
-            return DoctorPaymentSplitRule.objects.get(
-                doctor=self.doctor,
-                payment_method=self.payment_method,
-                is_active=True,
+        if prefetched_payments is not None:
+            return sum(
+                (payment.amount for payment in prefetched_payments),
+                start=Decimal("0.00"),
             )
-        except DoctorPaymentSplitRule.DoesNotExist:
-            return type(
-                "DefaultPaymentSplitRule",
-                (),
-                {
-                    "doctor_percentage": self.DEFAULT_DOCTOR_PERCENTAGE,
-                    "clinic_percentage": self.DEFAULT_CLINIC_PERCENTAGE,
-                },
-            )()
+
+        totals = self.payments.aggregate(total=models.Sum("amount"))
+        return totals["total"] or Decimal("0.00")
 
     def __str__(self) -> str:
         """Retorna a representação textual da consulta."""

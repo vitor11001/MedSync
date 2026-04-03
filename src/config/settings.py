@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rangefilter',
     'authentication',
+    'payments',
     'clinic',
 ]
 

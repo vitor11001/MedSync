@@ -8,14 +8,15 @@ from clinic.models import Appointment
 class AppointmentAdminForm(forms.ModelForm):
     """Formulário do admin para consultas."""
 
-    amount_paid = forms.CharField(
-        label="valor pago (R$)",
-        help_text="Informe apenas numeros. A virgula dos centavos sera aplicada automaticamente.",
+    total_amount = forms.CharField(
+        label="valor total (R$)",
+        help_text="Informe o valor total da consulta. A soma dos pagamentos deve bater com este valor.",
         widget=forms.TextInput(
             attrs={
                 "inputmode": "numeric",
                 "placeholder": "0,00",
                 "maxlength": "13",
+                "class": "js-money-mask",
             }
         ),
     )
@@ -33,16 +34,16 @@ class AppointmentAdminForm(forms.ModelForm):
                 Appointment.ConsultationType.FIRST_CONSULTATION
             )
 
-        if self.instance.pk and self.instance.amount_paid is not None:
-            self.initial["amount_paid"] = self._format_amount(self.instance.amount_paid)
+        if self.instance.pk and self.instance.total_amount is not None:
+            self.initial["total_amount"] = self._format_amount(self.instance.total_amount)
 
-    def clean_amount_paid(self) -> Decimal:
+    def clean_total_amount(self) -> Decimal:
         """Converte o valor formatado em decimal para persistência."""
-        value = self.cleaned_data.get("amount_paid", "")
+        value = self.cleaned_data.get("total_amount", "")
         digits = "".join(character for character in value if character.isdigit())
 
         if not digits:
-            raise forms.ValidationError("Informe o valor pago da consulta.")
+            raise forms.ValidationError("Informe o valor total da consulta.")
 
         normalized_value = Decimal(digits) / Decimal("100")
 
