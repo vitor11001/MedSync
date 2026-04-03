@@ -1,7 +1,10 @@
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.db.models import Prefetch
+
 from clinic.models import Appointment
+from payments.models import AppointmentPayment
 
 
 class AppointmentReportDataController:
@@ -24,6 +27,14 @@ class AppointmentReportDataController:
         """Retorna os dados do relatório no formato adequado ao escopo solicitado."""
         queryset = (
             Appointment.objects.select_related("client", "doctor", "created_by")
+            .prefetch_related(
+                Prefetch(
+                    "payments",
+                    queryset=AppointmentPayment.objects.select_related(
+                        "payment_method"
+                    ).order_by("received_at", "id"),
+                )
+            )
             .filter(
                 created_at__date__gte=start_date,
                 created_at__date__lte=end_date,
@@ -65,7 +76,7 @@ class AppointmentReportDataController:
                 "end_date": end_date.isoformat(),
             },
             "summary": {
-                "appointments_count": len(rows),
+                "appointments_count": len(appointments),
             },
             "columns": self.REPORT_COLUMNS,
             "rows": rows,
@@ -74,9 +85,10 @@ class AppointmentReportDataController:
 
     def _build_all_doctors_report(self, *, queryset, start_date, end_date):
         """Monta a estrutura de dados para o relatório de todos os médicos."""
+        appointments = list(queryset)
         grouped_appointments = defaultdict(list)
 
-        for appointment in queryset:
+        for appointment in appointments:
             grouped_appointments[appointment.doctor].append(appointment)
 
         doctors = [
@@ -94,8 +106,6 @@ class AppointmentReportDataController:
             }
             for doctor, appointments in grouped_appointments.items()
         ]
-
-        all_appointments = list(queryset)
 
         return {
             "scope": "all_doctors",
@@ -118,30 +128,49 @@ class AppointmentReportDataController:
             },
             "columns": self.REPORT_COLUMNS,
             "doctors": doctors,
-            "totals": self._build_totals(all_appointments),
+            "totals": self._build_totals(appointments),
         }
 
     def _serialize_appointments(self, appointments):
-        """Serializa a lista de consultas com numeração sequencial do relatório."""
-        return [
-            self._serialize_appointment(number=index, appointment=appointment)
-            for index, appointment in enumerate(appointments, start=1)
-        ]
+        """Serializa a lista de consultas em linhas por item de pagamento."""
+        rows = []
+
+        for appointment_number, appointment in enumerate(appointments, start=1):
+            for payment in appointment.payments.all():
+                rows.append(
+                    self._serialize_payment_row(
+                        number=appointment_number,
+                        appointment=appointment,
+                        payment=payment,
+                    )
+                )
+
+        return rows
 
     @staticmethod
     def _build_totals(appointments):
         """Calcula os totais por forma de pagamento e o faturamento geral."""
-        totals_by_payment_method = defaultdict(lambda: Decimal("0.00"))
+        totals_by_payment_method = {}
         grand_total = Decimal("0.00")
         doctor_total = Decimal("0.00")
         clinic_total = Decimal("0.00")
 
         for appointment in appointments:
-            payment_method = appointment.get_payment_method_display()
-            totals_by_payment_method[payment_method] += appointment.amount_paid
-            grand_total += appointment.amount_paid
-            doctor_total += appointment.doctor_amount or Decimal("0.00")
-            clinic_total += appointment.clinic_amount or Decimal("0.00")
+            payments = list(appointment.payments.all())
+
+            for payment in payments:
+                grand_total += payment.amount
+                doctor_total += payment.doctor_amount
+                clinic_total += payment.clinic_amount
+
+                label = payment.payment_method_display
+
+                if label not in totals_by_payment_method:
+                    totals_by_payment_method[label] = {
+                        "value": Decimal("0.00"),
+                    }
+
+                totals_by_payment_method[label]["value"] += payment.amount
 
         if grand_total > Decimal("0.00"):
             doctor_percentage = (
@@ -158,9 +187,12 @@ class AppointmentReportDataController:
             "by_payment_method": [
                 {
                     "label": label,
-                    "value": f"{value:.2f}".replace(".", ","),
+                    "value": f"{data['value']:.2f}".replace(".", ","),
                 }
-                for label, value in totals_by_payment_method.items()
+                for label, data in sorted(
+                    totals_by_payment_method.items(),
+                    key=lambda item: item[0],
+                )
             ],
             "doctor_total": f"{doctor_total:.2f}".replace(".", ","),
             "clinic_total": f"{clinic_total:.2f}".replace(".", ","),
@@ -170,18 +202,16 @@ class AppointmentReportDataController:
         }
 
     @staticmethod
-    def _serialize_appointment(*, number, appointment):
-        """Serializa os dados da consulta no formato esperado pela tabela do relatório."""
-        notes = (appointment.notes or "")[:100]
-
+    def _serialize_payment_row(*, number, appointment, payment):
+        """Serializa uma linha do relatório a partir de um item de pagamento."""
         return {
             "Nº": number,
             "Código": appointment.code,
             "Paciente": appointment.client.full_name.title(),
             "Tipo": appointment.get_consultation_type_display(),
-            "Pagamento": appointment.get_payment_method_display(),
-            "Valor Total": f"{appointment.amount_paid:.2f}".replace(".", ","),
-            "Valor Médico": f"{(appointment.doctor_amount or Decimal('0.00')):.2f}".replace(".", ","),
-            "Valor Clínica": f"{(appointment.clinic_amount or Decimal('0.00')):.2f}".replace(".", ","),
-            "Observação": notes,
+            "Pagamento": payment.payment_method_display,
+            "Valor Total": f"{payment.amount:.2f}".replace(".", ","),
+            "Valor Médico": f"{payment.doctor_amount:.2f}".replace(".", ","),
+            "Valor Clínica": f"{payment.clinic_amount:.2f}".replace(".", ","),
+            "Observação": (appointment.notes or "")[:100],
         }

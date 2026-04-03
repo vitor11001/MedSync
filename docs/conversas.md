@@ -259,6 +259,81 @@ Revisar o estado real do projeto, corrigir a base tecnica e iniciar a personaliz
 - `Telefone`
 - `Email`
 
+## 2026-04-02
+
+### Novo foco da conversa
+
+Evoluir o sistema em cima do fluxo administrativo atual, corrigindo falhas do admin, refinando o relatório, melhorando a documentação do projeto e preparando a infraestrutura local com favicon, backups e variáveis de ambiente.
+
+### Ajustes no admin de consultas
+
+- Foi corrigido um erro na tela de edição de consultas no Django Admin causado por concatenação incorreta entre `list` e `tuple` em `get_readonly_fields`.
+- Foi corrigido um segundo problema no inline de pagamentos, que quebrava a renderização da tela de edição ao montar o `empty_form`.
+- Foi adicionado teste de regressão para garantir que a tela de alteração da consulta continue abrindo normalmente.
+
+### Ajuste no relatório de consultas
+
+- O número exibido no relatório passou a ser por consulta, e não mais por item de pagamento.
+- Quando a mesma consulta aparece em várias linhas por causa de múltiplos pagamentos, todas as linhas agora compartilham o mesmo número.
+- Esse comportamento foi coberto por teste.
+
+### Reescrita do README
+
+- O `README.md` foi refeito com linguagem mais adequada para leitura humana.
+- O documento passou a descrever o projeto como sistema de backoffice clínico-financeiro.
+- Foram documentadas as funcionalidades atuais, a stack, os modos de execução, os comandos disponíveis, o relatório em PDF e o estado atual do produto.
+- O README também passou a documentar o uso de `.env`, backups automáticos e restauração do banco.
+
+### Favicon do projeto
+
+- O favicon passou a ser servido apenas pelo Nginx no ambiente Docker.
+- A URL `/favicon.ico` passou a redirecionar para `/favicon-32x32.png`.
+- O admin foi configurado para apontar diretamente para o favicon servido pelo Nginx.
+- O fallback de favicon pelo Django foi removido.
+
+### Regras para formas de pagamento
+
+- O campo de ordem de exibição foi removido.
+- A ordenação passou a ser alfabética pelo campo `name`.
+- O nome da forma de pagamento passou a ser normalizado ao salvar:
+- remoção de espaços nas extremidades;
+- conversão para minúsculas.
+- O nome passou a ter limite de 50 caracteres.
+- Não podem existir duas formas de pagamento com o mesmo nome após a normalização.
+- O nome da forma de pagamento passou a ser imutável após a criação.
+- Após criar uma forma de pagamento, no admin apenas o campo `is_active` pode ser alterado.
+- A exibição no admin passou a usar capitalização amigável por palavra, como `Pix - Casa Forte`, mesmo com o valor persistido em minúsculas no banco.
+- Foi criada migração para remover `sort_order`, ajustar o tamanho do campo e normalizar registros antigos.
+- Foram adicionados e ajustados testes para cobrir normalização, unicidade, ordenação, imutabilidade e exibição.
+
+### Backups automáticos do banco
+
+- Foi criado um serviço `dbbackup` no `docker-compose.yml`.
+- O ambiente Docker passou a gerar backups automáticos do PostgreSQL.
+- Foram configurados backups diários com retenção de 14 dias.
+- Foram configurados backups semanais com retenção de 35 dias.
+- Os backups semanais ficaram definidos para o dia 7 da semana, ou seja, domingo.
+- Os arquivos passaram a ser salvos no host em:
+- `backups/postgres/daily/`
+- `backups/postgres/weekly/`
+- Foi criado o comando `make backup` para backup manual imediato.
+- Foi criado o comando `make restore FILE=...` para restaurar um arquivo `.sql.gz`.
+- O README foi atualizado com instruções de backup e restauração.
+
+### Variáveis de ambiente do projeto
+
+- O `docker-compose.yml` deixou de carregar valores sensíveis fixos diretamente no arquivo.
+- O projeto passou a usar `.env` e `.env.example`.
+- Foi criado um `.env.example` com valores padrão de aplicação, banco, superusuário e backups.
+- Foi criado um `.env` inicial no formato padrão para posterior edição manual.
+- O fluxo com `docker compose` foi preservado.
+- O container `web` continua forçando `DB_HOST=dblocal` internamente para manter a integração com o PostgreSQL do Compose.
+
+### Situação final desta rodada
+
+- O projeto saiu desta conversa com admin mais estável, relatório mais legível, documentação mais forte e infraestrutura local mais preparada para uso real.
+- Foram validados testes automatizados relevantes ao longo da rodada após as alterações principais.
+
 ### Ajustes de estaticos
 
 - Foi adicionado `STATIC_ROOT` no settings para permitir `collectstatic`.
@@ -573,3 +648,122 @@ Consolidar o fluxo de relatorios em PDF, melhorar a apresentacao do documento e 
 - O relatorio em PDF ja esta funcional e com layout refinado.
 - A base de repasse financeiro ja foi modelada, mas ainda pode exigir evolucao futura para relatórios financeiros detalhados.
 - O proximo passo natural, se necessario, e levar os valores de repasse para relatorios financeiros especificos e telas operacionais da clinica.
+
+## 2026-03-29 - Pagamento multiplo por consulta
+
+### Novo ajuste de regra de negocio
+
+- Foi identificado que uma consulta nao pode mais assumir apenas uma unica forma de pagamento.
+- Na pratica, muitos pacientes pagam a mesma consulta usando mais de uma forma de pagamento.
+
+### Decisao de modelagem
+
+- Foi decidido que a forma correta de evoluir o sistema sera criar um model proprio de pagamento vinculado a consulta.
+- A abordagem escolhida foi separar os pagamentos em um model dedicado, em vez de manter apenas um unico campo `payment_method` na consulta.
+- Essa estrutura permitira registrar uma ou varias formas de pagamento na mesma consulta.
+
+### Impacto esperado
+
+- O repasse financeiro deixara de depender de um unico campo `payment_method` na consulta.
+- O calculo de repasse devera passar a considerar cada pagamento individualmente.
+- O total consolidado da consulta continuara existindo, mas os pagamentos serao registrados separadamente.
+
+### Proximo passo definido
+
+- O proximo passo da implementacao sera criar um model proprio para pagamentos da consulta.
+- Esse novo model devera permitir multiplos pagamentos por consulta e preparar a base para recalcular repasses por forma de pagamento.
+
+## 2026-03-29 - Continuacao - Implementacao do pagamento multiplo
+
+### Regra de negocio confirmada
+
+- Foi confirmado que uma consulta pode receber mais de uma forma de pagamento.
+- Exemplo aceito no fluxo:
+- uma consulta de `300` pode ser paga com `200` em dinheiro e `100` no cartao de credito.
+
+### Decisao final de modelagem
+
+- Foi descartada a abordagem com relacao `OneToOne` entre consulta e pagamento.
+- Foi escolhida a relacao `1:N` entre `Appointment` e pagamentos.
+- A consulta continua sendo o registro principal do atendimento.
+- Cada item de pagamento passou a ser registrado separadamente.
+
+### Estrutura definida
+
+- `Appointment` passou a representar apenas a consulta.
+- `Appointment` passou a manter o campo `total_amount` como valor total da consulta.
+- Foi criado o model `AppointmentPayment`.
+- Cada `AppointmentPayment` possui:
+- consulta
+- forma de pagamento
+- valor
+- percentual do medico
+- percentual da clinica
+- valor do medico
+- valor da clinica
+- criado por
+- recebido em
+
+### Regra de repasse
+
+- O repasse financeiro deixou de ser calculado no nivel da consulta inteira.
+- O repasse agora e calculado item a item, por pagamento.
+- Cada pagamento congela seu proprio snapshot financeiro no momento da criacao.
+- As regras de `DoctorPaymentSplitRule` continuam existindo.
+- As regras passaram a ser aplicadas por forma de pagamento em cada item de `AppointmentPayment`.
+
+### Decisao de interface no admin
+
+- Foi decidido manter a tela da consulta como ponto principal de uso da recepcao.
+- Os pagamentos passaram a aparecer dentro da propria consulta como inline.
+- A abordagem escolhida foi `TabularInline`.
+- O objetivo e permitir registrar a consulta e seus pagamentos na mesma tela, sem abrir um fluxo separado.
+
+### Validacoes definidas para o admin
+
+- Toda consulta deve ter pelo menos um pagamento.
+- A soma dos pagamentos deve ser exatamente igual ao `total_amount` da consulta.
+- Nao sera permitido pagamento com valor zero ou negativo.
+- Nesta primeira versao, a consulta deve sair totalmente quitada.
+- Nao foi aberto suporte para saldo pendente, troco, estorno ou parcelamento.
+
+### Comportamento apos criacao
+
+- A consulta continua seguindo a ideia de congelamento operacional apos ser criada.
+- Depois da criacao, apenas a observacao da consulta continua editavel pelo usuario criador.
+- Os pagamentos ficam visiveis para auditoria, mas nao foram deixados livres para edicao posterior.
+
+### Relatorios
+
+- O relatorio de consultas deixou de depender de um unico `payment_method` na consulta.
+- Os totais do relatorio passaram a ser calculados a partir dos itens de `AppointmentPayment`.
+- O total por forma de pagamento passou a consolidar os itens registrados em cada consulta.
+- Os totais do medico e da clinica passaram a somar os snapshots congelados de cada pagamento.
+
+### Seed e dados de teste
+
+- O seed de dados falsos foi adaptado para o novo fluxo.
+- O seed agora cria consultas com um ou mais pagamentos.
+- O seed continua criando regras de repasse por medico e forma de pagamento.
+
+### Banco de dados e migrations
+
+- Como o banco ainda esta em fase de testes, foi aceita a estrategia de rebaseline do schema.
+- Foi decidido nao migrar dados antigos.
+- As migrations antigas do app `clinic` foram substituidas por uma nova migration inicial refletindo a modelagem nova.
+- Essa decisao tambem resolveu o problema anterior de migrations quebradas no app `clinic`.
+
+### Validacao tecnica realizada
+
+- `manage.py check` passou sem erros.
+- A suite de testes passou apos a refatoracao.
+- Foram adicionados testes cobrindo:
+- snapshot de repasse por item de pagamento
+- validacao da soma dos pagamentos no inline
+- consolidacao correta do relatorio com pagamento multiplo
+
+### Observacao importante para retomada
+
+- O codigo ja ficou ajustado para pagamento multiplo por consulta.
+- Para subir o ambiente novamente com consistencia, o banco de testes pode ser recriado do zero.
+- O proximo passo natural, se necessario, e evoluir o fluxo para suportar saldo pendente, edicao controlada de pagamentos ou regras mais avancadas de recebimento.

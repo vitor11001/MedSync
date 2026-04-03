@@ -11,9 +11,9 @@ from clinic.models import (
     Appointment,
     Client,
     Doctor,
-    DoctorPaymentSplitRule,
     Specialty,
 )
+from payments.models import AppointmentPayment, DoctorPaymentSplitRule, PaymentMethod
 
 
 class Command(BaseCommand):
@@ -100,6 +100,14 @@ class Command(BaseCommand):
         "Necessário acompanhamento da evolução clínica nas próximas semanas.",
         "Atendimento realizado sem intercorrências e com boa adesão ao tratamento.",
     ]
+    DEFAULT_PAYMENT_METHODS = (
+        {"name": "Pix - Casa Forte", "code": "pix"},
+        {"name": "Cartão de crédito", "code": "credit_card"},
+        {"name": "Cartão de débito", "code": "debit_card"},
+        {"name": "Dinheiro", "code": "money"},
+        {"name": "Pix - Maquineta", "code": "pix_maquineta"},
+        {"name": "Plano de saúde", "code": "health_insurance"},
+    )
 
     def add_arguments(self, parser):
         """Define os argumentos opcionais do comando."""
@@ -115,13 +123,15 @@ class Command(BaseCommand):
         with transaction.atomic():
             specialties = self._ensure_specialties()
             doctors = self._ensure_doctors(specialties)
-            self._ensure_payment_split_rules(doctors)
+            payment_methods = self._ensure_payment_methods()
+            self._ensure_payment_split_rules(doctors, payment_methods)
             clients = self._ensure_clients(options["patients"])
             receptionist = self._ensure_receptionist()
             appointments_count = self._ensure_appointments(
                 doctors=doctors,
                 clients=clients,
                 receptionist=receptionist,
+                payment_methods=payment_methods,
                 appointments_count=options["appointments"],
                 days=options["days"],
             )
@@ -169,36 +179,56 @@ class Command(BaseCommand):
 
         return doctors
 
-    def _ensure_payment_split_rules(self, doctors):
+    def _ensure_payment_methods(self):
+        """Garante as formas de pagamento padrão usadas pela clínica."""
+        payment_methods = {}
+
+        for data in self.DEFAULT_PAYMENT_METHODS:
+            payment_method, _ = PaymentMethod.objects.update_or_create(
+                code=data["code"],
+                defaults={
+                    "name": data["name"],
+                    "is_active": True,
+                },
+            )
+            payment_methods[data["code"]] = payment_method
+
+        return payment_methods
+
+    def _ensure_payment_split_rules(self, doctors, payment_methods):
         """Garante regras de repasse para os médicos e pagamentos de teste."""
         payment_rules = {
             "6654": {
-                Appointment.PaymentMethod.MONEY: ("70.00", "30.00"),
-                Appointment.PaymentMethod.PIX: ("70.00", "30.00"),
-                Appointment.PaymentMethod.CREDIT_CARD: ("65.00", "35.00"),
-                Appointment.PaymentMethod.DEBIT_CARD: ("67.50", "32.50"),
-                Appointment.PaymentMethod.HEALTH_INSURANCE: ("60.00", "40.00"),
+                "money": ("70.00", "30.00"),
+                "pix": ("70.00", "30.00"),
+                "pix_maquineta": ("70.00", "30.00"),
+                "credit_card": ("65.00", "35.00"),
+                "debit_card": ("67.50", "32.50"),
+                "health_insurance": ("60.00", "40.00"),
             },
             "8123": {
-                Appointment.PaymentMethod.MONEY: ("68.00", "32.00"),
-                Appointment.PaymentMethod.PIX: ("68.00", "32.00"),
-                Appointment.PaymentMethod.CREDIT_CARD: ("63.00", "37.00"),
-                Appointment.PaymentMethod.DEBIT_CARD: ("64.50", "35.50"),
-                Appointment.PaymentMethod.HEALTH_INSURANCE: ("58.00", "42.00"),
+                "money": ("68.00", "32.00"),
+                "pix": ("68.00", "32.00"),
+                "pix_maquineta": ("68.00", "32.00"),
+                "credit_card": ("63.00", "37.00"),
+                "debit_card": ("64.50", "35.50"),
+                "health_insurance": ("58.00", "42.00"),
             },
             "9231": {
-                Appointment.PaymentMethod.MONEY: ("66.00", "34.00"),
-                Appointment.PaymentMethod.PIX: ("66.00", "34.00"),
-                Appointment.PaymentMethod.CREDIT_CARD: ("62.00", "38.00"),
-                Appointment.PaymentMethod.DEBIT_CARD: ("63.00", "37.00"),
-                Appointment.PaymentMethod.HEALTH_INSURANCE: ("57.00", "43.00"),
+                "money": ("66.00", "34.00"),
+                "pix": ("66.00", "34.00"),
+                "pix_maquineta": ("66.00", "34.00"),
+                "credit_card": ("62.00", "38.00"),
+                "debit_card": ("63.00", "37.00"),
+                "health_insurance": ("57.00", "43.00"),
             },
             "10452": {
-                Appointment.PaymentMethod.MONEY: ("69.00", "31.00"),
-                Appointment.PaymentMethod.PIX: ("69.00", "31.00"),
-                Appointment.PaymentMethod.CREDIT_CARD: ("64.00", "36.00"),
-                Appointment.PaymentMethod.DEBIT_CARD: ("65.00", "35.00"),
-                Appointment.PaymentMethod.HEALTH_INSURANCE: ("59.00", "41.00"),
+                "money": ("69.00", "31.00"),
+                "pix": ("69.00", "31.00"),
+                "pix_maquineta": ("69.00", "31.00"),
+                "credit_card": ("64.00", "36.00"),
+                "debit_card": ("65.00", "35.00"),
+                "health_insurance": ("59.00", "41.00"),
             },
         }
 
@@ -208,7 +238,7 @@ class Command(BaseCommand):
             for payment_method, percentages in doctor_rules.items():
                 DoctorPaymentSplitRule.objects.update_or_create(
                     doctor=doctor,
-                    payment_method=payment_method,
+                    payment_method=payment_methods[payment_method],
                     defaults={
                         "doctor_percentage": Decimal(percentages[0]),
                         "clinic_percentage": Decimal(percentages[1]),
@@ -255,7 +285,16 @@ class Command(BaseCommand):
 
         return receptionist
 
-    def _ensure_appointments(self, *, doctors, clients, receptionist, appointments_count, days):
+    def _ensure_appointments(
+        self,
+        *,
+        doctors,
+        clients,
+        receptionist,
+        payment_methods,
+        appointments_count,
+        days,
+    ):
         """Cria consultas distribuídas no período desejado para testes."""
         current_count = Appointment.objects.count()
 
@@ -263,6 +302,7 @@ class Command(BaseCommand):
             doctor = random.choice(doctors)
             client = random.choice(clients)
             created_at = self._generate_created_at(days=days)
+            total_amount = self._generate_amount()
 
             appointment = Appointment.objects.create(
                 client=client,
@@ -272,10 +312,27 @@ class Command(BaseCommand):
                 consultation_type=random.choice(
                     list(Appointment.ConsultationType.values)
                 ),
-                amount_paid=self._generate_amount(),
-                payment_method=random.choice(list(Appointment.PaymentMethod.values)),
+                total_amount=total_amount,
                 notes=random.choice(self.NOTES),
             )
+            payments = self._build_payment_items(
+                total_amount,
+                list(payment_methods.values()),
+            )
+
+            for payment_data in payments:
+                payment = AppointmentPayment.objects.create(
+                    appointment=appointment,
+                    created_by=receptionist,
+                    payment_method=payment_data["payment_method"],
+                    amount=payment_data["amount"],
+                    received_at=created_at,
+                )
+                AppointmentPayment.objects.filter(pk=payment.pk).update(
+                    created_at=created_at,
+                    updated_at=created_at,
+                )
+
             Appointment.objects.filter(pk=appointment.pk).update(
                 created_at=created_at,
                 updated_at=created_at,
@@ -333,6 +390,32 @@ class Command(BaseCommand):
         amount = Decimal(random.choice([120, 150, 180, 200, 250, 300]))
         cents = Decimal(random.choice(["0.00", "0.50"]))
         return amount + cents
+
+    @staticmethod
+    def _build_payment_items(total_amount, available_methods):
+        """Gera um ou dois pagamentos cuja soma fecha exatamente a consulta."""
+        if random.choice([True, False]):
+            return [
+                {
+                    "payment_method": random.choice(available_methods),
+                    "amount": total_amount,
+                }
+            ]
+
+        first_amount = (total_amount / Decimal("2")).quantize(Decimal("0.01"))
+        second_amount = total_amount - first_amount
+        selected_methods = random.sample(available_methods, k=2)
+
+        return [
+            {
+                "payment_method": selected_methods[0],
+                "amount": first_amount,
+            },
+            {
+                "payment_method": selected_methods[1],
+                "amount": second_amount,
+            },
+        ]
 
     @staticmethod
     def _generate_created_at(*, days):
